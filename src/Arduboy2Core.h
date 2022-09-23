@@ -8,12 +8,18 @@
 #define ARDUBOY2_CORE_H
 
 #include <Arduino.h>
+#if defined(ARDUINO_ARCH_AVR)
 #include <avr/power.h>
 #include <avr/sleep.h>
+#endif
 
+#ifndef _BV
+#define _BV(n) (1 << n)
+#endif
 
 // main hardware compile flags
 
+#if defined(ARDUINO_ARCH_AVR)
 #if !defined(ARDUBOY_10) && !defined(AB_DEVKIT)
 /* defaults to Arduboy Release 1.0 if not using a boards.txt file
  *
@@ -30,10 +36,12 @@
 #define ARDUBOY_10   //< compile for the production Arduboy v1.0
 // #define AB_DEVKIT    //< compile for the official dev kit
 #endif
+#endif
 
 #define RGB_ON LOW   /**< For digitially setting an RGB LED on using digitalWriteRGB() */
 #define RGB_OFF HIGH /**< For digitially setting an RGB LED off using digitalWriteRGB() */
 
+#if defined(ARDUINO_ARCH_AVR)
 // ----- Arduboy pins -----
 #ifdef ARDUBOY_10
 
@@ -198,10 +206,50 @@
 // Reference: https://github.com/Arduboy/Arduboy/issues/108
 
 #endif
+#elif defined(ARDUINO_ARCH_RP2040)
+#if defined(ARDUINO_SOLDERPARTY_RP2040_STAMP)
+
+#define SPI_DISPLAY spi0
+
+#define PIN_COPI 7       // SPI COPI Arduino pin number
+#define PIN_SCK 6        // SPI SCK Arduino pin number
+
+#define PIN_CS 13        // Display CS Arduino pin number
+#define PIN_DC 11        // Display D/C Arduino pin number
+#define PIN_RST 12       // Display reset Arduino pin number
+
+#define RED_LED 0
+#define GREEN_LED 1
+#define BLUE_LED 2
+
+// bit values for button states
+// these are determined by the buttonsState() function
+#define LEFT_BUTTON _BV(5)  /**< The Left button value for functions requiring a bitmask */
+#define RIGHT_BUTTON _BV(6) /**< The Right button value for functions requiring a bitmask */
+#define UP_BUTTON _BV(7)    /**< The Up button value for functions requiring a bitmask */
+#define DOWN_BUTTON _BV(4)  /**< The Down button value for functions requiring a bitmask */
+#define A_BUTTON _BV(3)     /**< The A button value for functions requiring a bitmask */
+#define B_BUTTON _BV(2)     /**< The B button value for functions requiring a bitmask */
+
+#define PIN_LEFT_BUTTON 18
+#define PIN_RIGHT_BUTTON 16
+#define PIN_UP_BUTTON 19
+#define PIN_DOWN_BUTTON 17
+#define PIN_A_BUTTON 15
+#define PIN_B_BUTTON 14
+
+#define PIN_SPEAKER_1 9
+#define PIN_SPEAKER_2 10
+#else 
+#error Unknown RP2040 board
+#endif
+#else
+#error Unknown arch
+#endif
 // --------------------
 
+#if defined(ARDUINO_ARCH_AVR)
 // ----- Pins common on Arduboy and DevKit -----
-
 // Unconnected analog input used for noise by generateRandomSeed()
 #define RAND_SEED_IN A4
 #define RAND_SEED_IN_PORT PORTF
@@ -222,6 +270,7 @@
 #define SPI_SS_PORT PORTB
 #define SPI_SS_BIT PORTB0
 // --------------------
+#endif
 
 // OLED hardware (SSD1306)
 

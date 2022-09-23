@@ -7,6 +7,8 @@
 #ifndef ARDUBOY2_BEEP_H
 #define ARDUBOY2_BEEP_H
 
+#include <Arduino.h>
+
 /** \brief
  * Play simple square wave tones using speaker pin 1.
  *
@@ -249,7 +251,8 @@ class BeepPin1
    */
   static constexpr uint16_t freq(const float hz)
   {
-    return (uint16_t) (((F_CPU / 8 / 2) + (hz / 2)) / hz) - 1;
+    return hz;
+    //return (uint16_t) (((F_CPU / 8 / 2) + (hz / 2)) / hz) - 1;
   }
 };
 

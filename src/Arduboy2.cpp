@@ -47,6 +47,10 @@ void Arduboy2Base::begin()
 
 void Arduboy2Base::beginDoFirst()
 {
+#if defined(ARDUINO_ARCH_RP2040)
+  EEPROM.begin(512);
+#endif
+
   boot(); // raw hardware
 
   display(); // blank the display (sBuffer is global, so cleared automatically)
@@ -72,7 +76,9 @@ void Arduboy2Base::flashlight()
   // prevent the bootloader magic number from being overwritten by timer 0
   // when a timer variable overlaps the magic number location, for when
   // flashlight mode is used for upload problem recovery
+#if defined(ARDUINO_ARCH_AVR)
   power_timer0_disable();
+#endif
 #endif
 
   while (true) {
@@ -265,13 +271,14 @@ bool Arduboy2Base::nextFrame()
 bool Arduboy2Base::nextFrameDEV()
 {
   bool ret = nextFrame();
-
+#if defined(TXLED0)
   if (ret) {
     if (lastFrameDurationMs > eachFrameMillis)
       TXLED1;
     else
       TXLED0;
   }
+#endif
   return ret;
 }
 
@@ -302,6 +309,7 @@ void Arduboy2Base::drawPixel(int16_t x, int16_t y, uint8_t color)
   uint16_t row_offset;
   uint8_t bit;
 
+#if defined(ARDUINO_ARCH_AVR)
   asm volatile
   (
     // bit = 1 << (y & 7)
@@ -331,6 +339,17 @@ void Arduboy2Base::drawPixel(int16_t x, int16_t y, uint8_t color)
   uint8_t data = sBuffer[row_offset] | bit;
   if (!(color & _BV(0))) data ^= bit;
   sBuffer[row_offset] = data;
+#else
+  uint8_t row = (uint8_t)y / 8;
+  if (color)
+  {
+    sBuffer[(row*WIDTH) + (uint8_t)x] |=   _BV((uint8_t)y % 8);
+  }
+  else
+  {
+    sBuffer[(row*WIDTH) + (uint8_t)x] &= ~ _BV((uint8_t)y % 8);
+  }
+#endif
 }
 #if 0
 // For reference, this is the C++ equivalent
@@ -617,6 +636,7 @@ void Arduboy2Base::fillRect
 
 void Arduboy2Base::fillScreen(uint8_t color)
 {
+#if defined(ARDUINO_ARCH_AVR)
   // C version:
   //
   // if (color != BLACK)
@@ -661,6 +681,16 @@ void Arduboy2Base::fillScreen(uint8_t color)
     :
     :
   );
+#else
+   if (color != BLACK)
+   {
+     color = 0xFF; // all pixels on
+   }
+   for (int16_t i = 0; i < WIDTH * HEIGHT / 8; i++)
+   {
+      sBuffer[i] = color;
+   }
+#endif
 }
 
 void Arduboy2Base::drawRoundRect

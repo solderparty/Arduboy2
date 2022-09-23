@@ -6,8 +6,15 @@
 
 #include "Arduboy2Core.h"
 
+#if defined(ARDUINO_ARCH_AVR)
 #include <avr/wdt.h>
+#elif defined(ARDUINO_ARCH_RP2040)
+#include <SPI.h>
 
+static SPIClassRP2040 SPI_(SPI_DISPLAY, -1, PIN_CS, PIN_SCK, PIN_COPI);
+#else
+#error Need SPI driver
+#endif
 
 //========================================
 //========== class Arduboy2Core ==========
@@ -85,8 +92,10 @@ void Arduboy2Core::boot()
   setCPUSpeed8MHz();
   #endif
 
+#if defined(ARDUINO_ARCH_AVR)
   // Select the ADC input here so a delay isn't required in generateRandomSeed()
   ADMUX = RAND_SEED_IN_ADMUX;
+#endif
 
   bootPins();
   bootSPI();
@@ -101,6 +110,7 @@ void Arduboy2Core::boot()
 // likely will have incorrectly set it for an 8MHz hardware clock.
 void Arduboy2Core::setCPUSpeed8MHz()
 {
+#if defined(ARDUINO_ARCH_AVR)
   uint8_t oldSREG = SREG;
   cli();                // suspend interrupts
   PLLCSR = _BV(PINDIV); // dissable the PLL and set prescale for 16MHz)
@@ -108,6 +118,7 @@ void Arduboy2Core::setCPUSpeed8MHz()
   CLKPR = 1;            // set clock divisor to 2 (0b0001)
   PLLCSR = _BV(PLLE) | _BV(PINDIV); // enable the PLL (with 16MHz prescale)
   SREG = oldSREG;       // restore interrupts
+#endif
 }
 #endif
 
@@ -115,6 +126,7 @@ void Arduboy2Core::setCPUSpeed8MHz()
 // This routine must be modified if any pins are moved to a different port
 void Arduboy2Core::bootPins()
 {
+#if defined(ARDUINO_ARCH_AVR)
 #ifdef ARDUBOY_10
 
   // Port B INPUT_PULLUP or HIGH
@@ -196,17 +208,50 @@ void Arduboy2Core::bootPins()
   // Speaker: Not set here. Controlled by audio class
 
 #endif
+#else
+  // Buttons
+  pinMode(PIN_UP_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_DOWN_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_LEFT_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_RIGHT_BUTTON, INPUT_PULLUP);
+
+  pinMode(PIN_A_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_B_BUTTON, INPUT_PULLUP);
+
+  // RGB LED
+  pinMode(RED_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(BLUE_LED, OUTPUT);
+
+  // SPI
+  pinMode(PIN_SCK, OUTPUT);
+  pinMode(PIN_COPI, OUTPUT);
+
+  // Display
+  pinMode(PIN_CS, OUTPUT);
+  pinMode(PIN_DC, OUTPUT);
+  pinMode(PIN_RST, OUTPUT);
+#endif
 }
 
 void Arduboy2Core::bootOLED()
 {
   // reset the display
   delayShort(5); // reset pin should be low here. let it stay low a while
+
+#if defined(ARDUINO_ARCH_AVR)
   bitSet(RST_PORT, RST_BIT); // set high to come out of reset
+#else
+  digitalWrite(PIN_RST, HIGH);
+#endif
   delayShort(5); // wait a while
 
   // select the display (permanently, since nothing else is using SPI)
+#if defined(ARDUINO_ARCH_AVR)
   bitClear(CS_PORT, CS_BIT);
+#else
+  digitalWrite(PIN_CS, LOW);
+#endif
 
   // run our customized boot-up command sequence against the
   // OLED to initialize it properly for Arduboy
@@ -219,25 +264,38 @@ void Arduboy2Core::bootOLED()
 
 void Arduboy2Core::LCDDataMode()
 {
+#if defined(ARDUINO_ARCH_AVR)
   bitSet(DC_PORT, DC_BIT);
+#else
+  digitalWrite(PIN_DC, HIGH);
+#endif
 }
 
 void Arduboy2Core::LCDCommandMode()
 {
+#if defined(ARDUINO_ARCH_AVR)
   bitClear(DC_PORT, DC_BIT);
+#else
+  digitalWrite(PIN_DC, LOW);
+#endif
 }
 
 // Initialize the SPI interface for the display
 void Arduboy2Core::bootSPI()
 {
+#if defined(ARDUINO_ARCH_AVR)
 // master, mode 0, MSB first, CPU clock / 2 (8MHz)
   SPCR = _BV(SPE) | _BV(MSTR);
   SPSR = _BV(SPI2X);
+#else
+  SPI_.begin(false);
+#endif
 }
 
 // Write to the SPI bus (MOSI pin)
 void Arduboy2Core::SPItransfer(uint8_t data)
 {
+#if defined(ARDUINO_ARCH_AVR)
   SPDR = data;
   /*
    * The following NOP introduces a small delay that can prevent the wait
@@ -247,13 +305,20 @@ void Arduboy2Core::SPItransfer(uint8_t data)
    */
   asm volatile("nop");
   while (!(SPSR & _BV(SPIF))) { } // wait
+#else
+  SPI_.transfer(data);
+#endif
 }
 
 // Write to and read from the SPI bus (out to MOSI pin, in from MISO pin)
 uint8_t Arduboy2Core::SPItransferAndRead(uint8_t data)
 {
+#if defined(ARDUINO_ARCH_AVR)
   SPItransfer(data);
   return SPDR;
+#else
+  return SPI_.transfer(data);
+#endif
 }
 
 void Arduboy2Core::safeMode()
@@ -265,7 +330,9 @@ void Arduboy2Core::safeMode()
 #ifndef ARDUBOY_CORE // for Arduboy core timer 0 should remain enabled
     // prevent the bootloader magic number from being overwritten by timer 0
     // when a timer variable overlaps the magic number location
+#if defined(ARDUINO_ARCH_AVR)
     power_timer0_disable();
+#endif
 #endif
 
     while (true) { }
@@ -277,18 +344,22 @@ void Arduboy2Core::safeMode()
 
 void Arduboy2Core::idle()
 {
+#if defined(ARDUINO_ARCH_AVR)
   SMCR = _BV(SE); // select idle mode and enable sleeping
   sleep_cpu();
   SMCR = 0; // disable sleeping
+#endif
 }
 
 void Arduboy2Core::bootPowerSaving()
 {
+#if defined(ARDUINO_ARCH_AVR)
   // disable Two Wire Interface (I2C) and the ADC
   // All other bits will be written with 0 so will be enabled
   PRR0 = _BV(PRTWI) | _BV(PRADC);
   // disable USART1
   PRR1 |= _BV(PRUSART1);
+#endif
 }
 
 // Shut down the display
@@ -299,7 +370,11 @@ void Arduboy2Core::displayOff()
   SPItransfer(0x8D); // charge pump:
   SPItransfer(0x10); //   disable
   delayShort(250);
+#if defined(ARDUINO_ARCH_AVR)
   bitClear(RST_PORT, RST_BIT); // set display reset pin low (reset state)
+#else
+  digitalWrite(PIN_RST, LOW);
+#endif
 }
 
 // Restart the display after a displayOff()
@@ -332,6 +407,7 @@ void Arduboy2Core::paintScreen(const uint8_t *image)
 // It is specifically tuned for a 16MHz CPU clock and SPI clocking at 8MHz.
 void Arduboy2Core::paintScreen(uint8_t image[], bool clear)
 {
+#if defined(ARDUINO_ARCH_AVR)
   uint16_t count;
 
   asm volatile (
@@ -355,6 +431,17 @@ void Arduboy2Core::paintScreen(uint8_t image[], bool clear)
       [len_lsb] "M"   (WIDTH * (HEIGHT / 8 * 2) & 0xFF), // 2: for delay loop multiplier
       [clear]   "r"   (clear)
   );
+#else
+    for (int i = 0; i < (HEIGHT*WIDTH)/8; i++)
+    {
+      if (clear)
+      {
+        image[i] = 0;
+      }
+
+      SPItransfer(pgm_read_byte(image + i));
+    }
+#endif
 }
 #if 0
 // For reference, this is the "closed loop" C++ version of paintScreen()
@@ -440,6 +527,7 @@ void Arduboy2Core::flipHorizontal(bool flipped)
 
 void Arduboy2Core::setRGBled(uint8_t red, uint8_t green, uint8_t blue)
 {
+#if defined(ARDUINO_ARCH_AVR)
 #ifdef ARDUBOY_10 // RGB, all the pretty colors
   // timer 0: Fast PWM, OC0A clear on compare / set at top
   // We must stay in Fast PWM mode because timer 0 is used for system timing.
@@ -458,10 +546,14 @@ void Arduboy2Core::setRGBled(uint8_t red, uint8_t green, uint8_t blue)
   (void)green;  // parameter unused
   bitWrite(BLUE_LED_PORT, BLUE_LED_BIT, blue ? RGB_ON : RGB_OFF);
 #endif
+#else
+  digitalWriteRGB(red, green, blue);
+#endif
 }
 
 void Arduboy2Core::setRGBled(uint8_t color, uint8_t val)
 {
+#if defined(ARDUINO_ARCH_AVR)
 #ifdef ARDUBOY_10
   if (color == RED_LED)
   {
@@ -482,19 +574,25 @@ void Arduboy2Core::setRGBled(uint8_t color, uint8_t val)
     bitWrite(BLUE_LED_PORT, BLUE_LED_BIT, val ? RGB_ON : RGB_OFF);
   }
 #endif
+#else
+  digitalWriteRGB(color, val);
+#endif
 }
 
 void Arduboy2Core::freeRGBled()
 {
+#if defined(ARDUINO_ARCH_AVR)
 #ifdef ARDUBOY_10
   // clear the COM bits to return the pins to normal I/O mode
   TCCR0A = _BV(WGM01) | _BV(WGM00);
   TCCR1A = _BV(WGM10);
 #endif
+#endif
 }
 
 void Arduboy2Core::digitalWriteRGB(uint8_t red, uint8_t green, uint8_t blue)
 {
+#if defined(ARDUINO_ARCH_AVR)
 #ifdef ARDUBOY_10
   bitWrite(RED_LED_PORT, RED_LED_BIT, red);
   bitWrite(GREEN_LED_PORT, GREEN_LED_BIT, green);
@@ -505,10 +603,16 @@ void Arduboy2Core::digitalWriteRGB(uint8_t red, uint8_t green, uint8_t blue)
   (void)green;  // parameter unused
   bitWrite(BLUE_LED_PORT, BLUE_LED_BIT, blue);
 #endif
+#else
+  digitalWrite(RED_LED, red);
+  digitalWrite(GREEN_LED, green);
+  digitalWrite(BLUE_LED, blue);
+#endif
 }
 
 void Arduboy2Core::digitalWriteRGB(uint8_t color, uint8_t val)
 {
+#if defined(ARDUINO_ARCH_AVR)
 #ifdef ARDUBOY_10
   if (color == RED_LED)
   {
@@ -529,6 +633,20 @@ void Arduboy2Core::digitalWriteRGB(uint8_t color, uint8_t val)
     bitWrite(BLUE_LED_PORT, BLUE_LED_BIT, val);
   }
 #endif
+#else
+  if (color == RED_LED)
+  {
+    digitalWrite(RED_LED, val);
+  }
+  else if (color == GREEN_LED)
+  {
+    digitalWrite(GREEN_LED, val);
+  }
+  else if (color == BLUE_LED)
+  {
+    digitalWrite(BLUE_LED, val);
+  }
+#endif
 }
 
 /* Buttons */
@@ -537,6 +655,7 @@ uint8_t Arduboy2Core::buttonsState()
 {
   uint8_t buttons;
 
+#if defined(ARDUINO_ARCH_AVR)
 #ifdef ARDUBOY_10
   // up, right, left, down
   buttons = ((~PINF) &
@@ -557,7 +676,17 @@ uint8_t Arduboy2Core::buttonsState()
   // B
   if (bitRead(B_BUTTON_PORTIN, B_BUTTON_BIT) == 0) { buttons |= B_BUTTON; }
 #endif
+#else
+  buttons = 0;
+  if (digitalRead(PIN_UP_BUTTON)    == LOW) buttons |= UP_BUTTON;
+  if (digitalRead(PIN_DOWN_BUTTON)  == LOW) buttons |= DOWN_BUTTON;
+  if (digitalRead(PIN_LEFT_BUTTON)  == LOW) buttons |= LEFT_BUTTON;
+  if (digitalRead(PIN_RIGHT_BUTTON) == LOW) buttons |= RIGHT_BUTTON;
 
+  if (digitalRead(PIN_A_BUTTON)     == LOW) buttons |= A_BUTTON;
+  if (digitalRead(PIN_B_BUTTON)     == LOW) buttons |= B_BUTTON;
+
+#endif
   return buttons;
 }
 
@@ -565,6 +694,7 @@ unsigned long Arduboy2Core::generateRandomSeed()
 {
   unsigned long seed;
 
+#if defined(ARDUINO_ARCH_AVR)
   power_adc_enable(); // ADC on
 
   // do an ADC read from an unconnected input pin
@@ -574,6 +704,7 @@ unsigned long Arduboy2Core::generateRandomSeed()
   seed = ((unsigned long)ADC << 16) + micros();
 
   power_adc_disable(); // ADC off
+#endif
 
   return seed;
 }
@@ -586,6 +717,7 @@ void Arduboy2Core::delayShort(uint16_t ms)
 
 void Arduboy2Core::exitToBootloader()
 {
+#if defined(ARDUINO_ARCH_AVR)
   cli();
   // set bootloader magic key
   // storing two uint8_t instead of one uint16_t saves an instruction
@@ -597,6 +729,7 @@ void Arduboy2Core::exitToBootloader()
   WDTCSR = (_BV(WDCE) | _BV(WDE));
   WDTCSR = _BV(WDE);
   while (true) { }
+#endif
 }
 
 
@@ -607,20 +740,25 @@ void Arduboy2Core::exitToBootloader()
 void Arduboy2NoUSB::mainNoUSB()
 {
   // disable USB
+#if defined(ARDUINO_ARCH_AVR)
   UDCON = _BV(DETACH);
   UDIEN = 0;
   UDINT = 0;
   USBCON = _BV(FRZCLK);
   UHWCON = 0;
   power_usb_disable();
+#endif
 
   init();
 
+#if defined(TX_RX_LED_INIT)
   // This would normally be done in the USB code that uses the TX and RX LEDs
   TX_RX_LED_INIT;
   TXLED0;
   RXLED0;
+#endif
 
+#if defined(ARDUINO_ARCH_AVR)
   // Set the DOWN button pin for INPUT_PULLUP
   bitSet(DOWN_BUTTON_PORT, DOWN_BUTTON_BIT);
   bitClear(DOWN_BUTTON_DDR, DOWN_BUTTON_BIT);
@@ -632,6 +770,7 @@ void Arduboy2NoUSB::mainNoUSB()
   if (bitRead(DOWN_BUTTON_PORTIN, DOWN_BUTTON_BIT) == 0) {
     Arduboy2Core::exitToBootloader();
   }
+#endif
 
   // The remainder is a copy of the Arduino main() function with the
   // USB code and other unneeded code commented out.
